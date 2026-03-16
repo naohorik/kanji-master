@@ -176,10 +176,12 @@ function Stars() {
 
 // ─── UPLOAD SCREEN ────────────────────────────────────────────────────────────
 function UploadScreen({ onStart }) {
+  const [tab, setTab] = useState("photo"); // "photo" | "text"
   const [imgSrc, setImgSrc] = useState(null);
   const [imgB64, setImgB64] = useState(null);
+  const [textInput, setTextInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [stage, setStage] = useState(""); // "reading" | "making"
+  const [stage, setStage] = useState("");
   const [err, setErr] = useState("");
   const fileRef = useRef();
   const cameraRef = useRef();
@@ -195,17 +197,24 @@ function UploadScreen({ onStart }) {
     reader.readAsDataURL(file);
   };
 
+  const canStart = tab === "photo" ? !!imgB64 : textInput.trim().length > 0;
+
   const handleGo = async () => {
-    if (!imgB64) { setErr("画像を選んでください"); return; }
+    if (!canStart) { setErr(tab === "photo" ? "画像を選んでください" : "漢字を入力してください"); return; }
     setLoading(true); setErr("");
     try {
-      setStage("reading");
-      const text = await extractTextFromImage(imgB64);
+      let text = "";
+      if (tab === "photo") {
+        setStage("reading");
+        text = await extractTextFromImage(imgB64);
+      } else {
+        text = textInput;
+      }
       setStage("making");
       const words = await generateQuestions(text);
       onStart(words);
     } catch (e) {
-      setErr("うまく読み取れませんでした。もう一度試してね。");
+      setErr("もんだいを作れませんでした。もう一度試してね。");
     }
     setLoading(false); setStage("");
   };
@@ -213,7 +222,7 @@ function UploadScreen({ onStart }) {
   return (
     <div style={{ maxWidth:440, margin:"0 auto" }}>
       {/* header */}
-      <div style={{ textAlign:"center", marginBottom:28 }}>
+      <div style={{ textAlign:"center", marginBottom:24 }}>
         <div style={{ fontSize:64, lineHeight:1, marginBottom:10, filter:"drop-shadow(0 4px 8px rgba(255,160,0,0.3))" }}>📒</div>
         <h1 style={{ margin:0, fontSize:30, fontWeight:900, color:"#2C1810", letterSpacing:2, fontFamily:"'Kaisei Opti', 'Noto Serif JP', serif" }}>
           かんじマスター
@@ -221,47 +230,65 @@ function UploadScreen({ onStart }) {
         <p style={{ margin:"8px 0 0", fontSize:14, color:"#9C7B5A" }}>テストのプリントをとって、100点をめざそう！</p>
       </div>
 
-      {/* upload card */}
-      <div style={{ background:"white", borderRadius:22, padding:26, boxShadow:"0 6px 28px rgba(180,120,60,0.12)", border:"2px solid #EDD9B8", marginBottom:18 }}>
-        <div style={{ fontWeight:800, fontSize:15, color:"#5C3D1E", marginBottom:14, display:"flex", alignItems:"center", gap:8 }}>
-          <span style={{ background:"#FFF3DC", borderRadius:8, padding:"2px 10px", fontSize:13, color:"#E07B20" }}>ステップ 1</span>
-          プリントの写真をとろう
-        </div>
+      {/* tab switcher */}
+      <div style={{ display:"flex", background:"#EDD9B8", borderRadius:14, padding:4, marginBottom:16, gap:4 }}>
+        {[["photo","📷 写真でよみとる"],["text","✏️ 手入力する"]].map(([key,label]) => (
+          <button key={key} onClick={() => { setTab(key); setErr(""); }}
+            style={{ flex:1, padding:"11px 8px", borderRadius:11, border:"none", background: tab===key ? "white" : "transparent", color: tab===key ? "#E07B20" : "#9C7B5A", fontWeight:800, fontSize:14, cursor:"pointer", fontFamily:"inherit", boxShadow: tab===key ? "0 2px 8px rgba(0,0,0,0.1)" : "none", transition:"all 0.2s" }}>
+            {label}
+          </button>
+        ))}
+      </div>
 
-        {/* drop zone */}
-        <div
-          onClick={() => fileRef.current.click()}
-          style={{ border:"3px dashed #D4B896", borderRadius:16, padding:"28px 20px", textAlign:"center", cursor:"pointer", background: imgSrc ? "#FFF8F0" : "#FFFDF7", transition:"all 0.2s", position:"relative", overflow:"hidden" }}
-        >
-          {imgSrc ? (
-            <div>
-              <img src={imgSrc} alt="uploaded" style={{ maxWidth:"100%", maxHeight:200, borderRadius:10, objectFit:"contain" }} />
-              <div style={{ marginTop:10, fontSize:13, color:"#9C7B5A" }}>✅ 画像がよみこまれました</div>
+      {/* card */}
+      <div style={{ background:"white", borderRadius:22, padding:24, boxShadow:"0 6px 28px rgba(180,120,60,0.12)", border:"2px solid #EDD9B8", marginBottom:16 }}>
+        {tab === "photo" ? (
+          <div>
+            <div style={{ fontWeight:800, fontSize:14, color:"#5C3D1E", marginBottom:12 }}>プリントの写真をとろう</div>
+            <div onClick={() => fileRef.current.click()}
+              style={{ border:"3px dashed #D4B896", borderRadius:16, padding:"24px 20px", textAlign:"center", cursor:"pointer", background: imgSrc ? "#FFF8F0" : "#FFFDF7" }}>
+              {imgSrc ? (
+                <div>
+                  <img src={imgSrc} alt="uploaded" style={{ maxWidth:"100%", maxHeight:180, borderRadius:10, objectFit:"contain" }} />
+                  <div style={{ marginTop:8, fontSize:13, color:"#9C7B5A" }}>✅ 画像がよみこまれました</div>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize:44, marginBottom:6 }}>📷</div>
+                  <div style={{ fontWeight:800, color:"#9C7B5A", fontSize:14 }}>ここをタップして写真を選ぶ</div>
+                  <div style={{ fontSize:12, color:"#BBA888", marginTop:3 }}>プリント・教科書・ノートOK</div>
+                </div>
+              )}
             </div>
-          ) : (
-            <div>
-              <div style={{ fontSize:48, marginBottom:8 }}>📷</div>
-              <div style={{ fontWeight:800, color:"#9C7B5A", fontSize:15 }}>ここをタップして写真を選ぶ</div>
-              <div style={{ fontSize:12, color:"#BBA888", marginTop:4 }}>プリント・教科書・ノートOK</div>
+            <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }} onChange={e => handleFile(e.target.files[0])} />
+            <button onClick={() => cameraRef.current.click()}
+              style={{ width:"100%", marginTop:10, padding:"11px", borderRadius:12, border:"2px solid #D4B896", background:"#FFF8F0", fontSize:14, fontWeight:700, color:"#9C7B5A", cursor:"pointer", fontFamily:"inherit" }}>
+              📸 カメラで直接とる
+            </button>
+            <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display:"none" }} onChange={e => handleFile(e.target.files[0])} />
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontWeight:800, fontSize:14, color:"#5C3D1E", marginBottom:6 }}>漢字・熟語を入力しよう</div>
+            <div style={{ fontSize:12, color:"#9C7B5A", marginBottom:10 }}>テストに出る漢字をスペース・読点・改行で区切って入力してね</div>
+            <textarea
+              value={textInput}
+              onChange={e => setTextInput(e.target.value)}
+              placeholder={"例：\n友達、協力、努力\n正直（しょうじき）\n感謝、礼儀、親切"}
+              style={{ width:"100%", minHeight:160, padding:"14px", borderRadius:14, border:"2.5px solid #D4B896", fontSize:16, fontFamily:"'Noto Serif JP',serif", outline:"none", background:"#FFFEF5", color:"#2C1810", lineHeight:1.9, resize:"vertical", boxSizing:"border-box" }}
+            />
+            <div style={{ fontSize:12, color:"#BBA888", marginTop:6 }}>
+              💡 読み仮名があると問題の精度がアップ！（例：努力（どりょく））
             </div>
-          )}
-        </div>
-        <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }} onChange={e => handleFile(e.target.files[0])} />
-
-        {/* camera button */}
-        <button
-          onClick={() => cameraRef.current.click()}
-          style={{ width:"100%", marginTop:12, padding:"12px", borderRadius:12, border:"2px solid #D4B896", background:"#FFF8F0", fontSize:14, fontWeight:700, color:"#9C7B5A", cursor:"pointer", fontFamily:"inherit" }}>
-          📸 カメラで直接とる
-        </button>
-        <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display:"none" }} onChange={e => handleFile(e.target.files[0])} />
+          </div>
+        )}
       </div>
 
       {err && <div style={{ color:"#E05050", fontSize:13, textAlign:"center", marginBottom:10, background:"#FFF0F0", padding:"8px 16px", borderRadius:10 }}>⚠ {err}</div>}
 
       {/* start button */}
-      <button onClick={handleGo} disabled={loading || !imgB64}
-        style={{ width:"100%", padding:"20px", borderRadius:16, border:"none", background: (loading || !imgB64) ? "#D4C4B0" : "linear-gradient(135deg,#FF6B35 0%,#FFAA00 100%)", color:"white", fontSize:20, fontWeight:900, cursor: (loading || !imgB64) ? "default":"pointer", fontFamily:"'Kaisei Opti','Noto Serif JP',serif", letterSpacing:2, boxShadow: imgB64 && !loading ? "0 6px 20px rgba(255,107,53,0.4)":"none", transition:"all 0.3s" }}>
+      <button onClick={handleGo} disabled={loading || !canStart}
+        style={{ width:"100%", padding:"20px", borderRadius:16, border:"none", background: (loading || !canStart) ? "#D4C4B0" : "linear-gradient(135deg,#FF6B35 0%,#FFAA00 100%)", color:"white", fontSize:20, fontWeight:900, cursor: (loading || !canStart) ? "default":"pointer", fontFamily:"'Kaisei Opti','Noto Serif JP',serif", letterSpacing:2, boxShadow: canStart && !loading ? "0 6px 20px rgba(255,107,53,0.4)":"none", transition:"all 0.3s" }}>
         {loading
           ? stage === "reading" ? "🔍 文字をよみとり中..." : "🤖 もんだいを作成中..."
           : "べんきょうスタート！ 🚀"
@@ -269,7 +296,7 @@ function UploadScreen({ onStart }) {
       </button>
 
       {/* feature pills */}
-      <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginTop:20, justifyContent:"center" }}>
+      <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginTop:18, justifyContent:"center" }}>
         {["✏️ 書き取り","📖 読み方","💡 意味えらび","🔤 穴埋め"].map(t => (
           <span key={t} style={{ background:"white", border:"1.5px solid #EDD9B8", borderRadius:99, padding:"5px 14px", fontSize:13, color:"#9C7B5A", fontWeight:600 }}>{t}</span>
         ))}
