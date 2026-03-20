@@ -132,8 +132,8 @@ function DrawingCanvas({ target, onSubmit }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-      <canvas ref={canvasRef} width={300} height={300}
-        style={{ border: "3px solid #D4B896", borderRadius: 20, touchAction: "none", width: "min(300px,82vw)", height: "min(300px,82vw)", display: "block", boxShadow: "0 4px 16px rgba(180,140,80,0.2)", background: "#FFFEF5" }}
+      <canvas ref={canvasRef} width={400} height={400}
+        style={{ border: "3px solid #D4B896", borderRadius: 20, touchAction: "none", width: "min(380px,92vw)", height: "min(380px,92vw)", display: "block", boxShadow: "0 4px 16px rgba(180,140,80,0.2)", background: "#FFFEF5" }}
         onMouseDown={start} onMouseMove={move} onMouseUp={stop} onMouseLeave={stop}
         onTouchStart={start} onTouchMove={move} onTouchEnd={stop}
       />
