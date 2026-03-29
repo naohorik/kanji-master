@@ -60,7 +60,7 @@ async function generateQuestions(wordText) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST", headers: API_HEADERS,
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514", max_tokens: 6000,
+      model: "claude-sonnet-4-20250514", max_tokens: 8000,
       messages: [{ role: "user", content: `みろく国語塾 中級レベルの問題を作成してください。
 以下のテキストから語句を抽出してください：
 ${wordText}
@@ -80,7 +80,7 @@ ${wordText}
 ・四字熟語：yoji に {"full":"一石二鳥","blank":2,"answer":"石","wrongAnswers":["木","金","土"]} を設定（blank は1〜4の位置）
 ・和語（ひらがなの言葉）：meaning に {"text":"言葉の意味説明","wrongMeanings":["誤答1","誤答2","誤答3"]} を設定
 ・慣用句：kanyoku に {"phrase":"羽をのばす","blank":"羽","answer":"羽","wrongAnswers":["根","虫","猫"],"meaning":"のびのびと自由にすること"} を設定
-・最低5問・最大25問
+・語句は省略せずすべて抽出すること（上限なし）
 ・JSONのみ出力` }]
     })
   });
