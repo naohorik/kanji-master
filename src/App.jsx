@@ -70,6 +70,8 @@ ${wordText}
   "kanji":"漢字・熟語・和語・慣用句",
   "reading":"ひらがなの読み方",
   "wrongReadings":["まちがいよみ1","まちがいよみ2","まちがいよみ3"],
+  "sentence":null,
+  "sentenceReading":null,
   "yoji":null,
   "meaning":null,
   "kanyoku":null
@@ -77,8 +79,13 @@ ${wordText}
 
 各フィールドのルール：
 ・漢字・熟語：reading と wrongReadings を設定。yoji・meaning・kanyoku は null
+  → sentence フィールドに例文を設定すること。例文はプリントにある文をそのまま使う。カタカナ部分（書くべき漢字）は __BLANK__ に置換すること
+  例：{"sentence":"人類の__BLANK__。","sentenceReading":"えいち"}
+  sentenceReading は空欄部分のひらがなの読み
 ・四字熟語：yoji に {"full":"一石二鳥","blank":2,"answer":"石","wrongAnswers":["木","金","土"]} を設定（blank は1〜4の位置）
-・和語（ひらがなの言葉）：meaning に {"text":"言葉の意味説明","wrongMeanings":["誤答1","誤答2","誤答3"]} を設定
+・和語（ひらがなの言葉）：meaning に以下を設定：
+  {"text":"その言葉自体（例：まぎらわしい）","wrongMeanings":["他の和語1","他の和語2","他の和語3"],"sentence":"猫をかぶって、□ふるまいをする。（□が空欄。その和語を入れると文章が完成する）"}
+  ※ sentence の□部分に正解の和語が入る。wrongMeanings は同じプリントの他の和語を使うと自然なひっかけになる
 ・慣用句：kanyoku に {"phrase":"羽をのばす","blank":"羽","answer":"羽","wrongAnswers":["根","虫","猫"],"meaning":"のびのびと自由にすること"} を設定
 ・語句は省略せずすべて抽出すること（上限なし）
 ・JSONのみ出力` }]
@@ -497,9 +504,34 @@ function QuestionCard({ entry, idx, total, wrongCount, onAnswer }) {
         {/* ── 書き取り ── */}
         {isWriting && (
           <div>
+            {/* 例文（sentence）がある場合は例文を表示、ない場合は読みを表示 */}
             <div style={{ textAlign: "center", marginBottom: 20 }}>
-              <div style={{ fontSize: 13, color: "#9C7B5A", marginBottom: 10 }}>この読み方の漢字を書こう</div>
-              <div style={{ fontSize: 52, fontWeight: 900, color: "#FF6B35", fontFamily: "'Kaisei Opti','Noto Serif JP',serif", letterSpacing: 6, lineHeight: 1.2 }}>{word.reading}</div>
+              <div style={{ fontSize: 13, color: "#9C7B5A", marginBottom: 12 }}>
+                {word.sentence ? "傍線部を漢字で書こう" : "この読み方の漢字を書こう"}
+              </div>
+              {word.sentence ? (
+                <div style={{ fontSize: 20, color: "#2C1810", fontFamily: "'Noto Serif JP',serif", lineHeight: 2.2, background: "#FFF8F0", padding: "14px 18px", borderRadius: 14, border: "2px solid #EDD9B8" }}>
+                  {word.sentence.split("__BLANK__").map((part, i, arr) => (
+                    <span key={i}>
+                      {part}
+                      {i < arr.length - 1 && (
+                        <span style={{ display: "inline-block", minWidth: 56, borderBottom: "3px solid #FF6B35", marginBottom: -4, marginLeft: 2, marginRight: 2 }}>
+                          {hwResult ? (
+                            <span style={{ fontSize: 22, fontWeight: 900, color: hwResult.correct ? "#2E7D32" : "#C62828", fontFamily: "'Noto Serif JP',serif" }}>{word.kanji}</span>
+                          ) : "　"}
+                        </span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: 52, fontWeight: 900, color: "#FF6B35", fontFamily: "'Kaisei Opti','Noto Serif JP',serif", letterSpacing: 6, lineHeight: 1.2 }}>{word.reading}</div>
+              )}
+              {word.sentence && !hwResult && (
+                <div style={{ marginTop: 8, fontSize: 15, color: "#FF6B35", fontWeight: 700 }}>
+                  読み：{word.sentenceReading || word.reading}
+                </div>
+              )}
             </div>
             {checking ? (
               <div style={{ textAlign: "center", padding: 32, fontSize: 20, color: "#9C7B5A" }}>🤔 チェック中...</div>
@@ -557,17 +589,50 @@ function QuestionCard({ entry, idx, total, wrongCount, onAnswer }) {
           </div>
         )}
 
-        {/* ── 意味えらび（和語） ── */}
+        {/* ── 意味えらび（和語）：文中の□に当てはまる言葉を選ぶ ── */}
         {isMeaning && word.meaning && (
           <div>
             <div style={{ textAlign: "center", marginBottom: 20 }}>
-              <div style={{ fontSize: 13, color: "#9C7B5A", marginBottom: 10 }}>意味を選ぼう</div>
-              <div style={{ fontSize: 34, fontWeight: 900, color: "#1C1B2E", fontFamily: "'Noto Serif JP',serif" }}>{word.kanji}</div>
+              <div style={{ fontSize: 13, color: "#9C7B5A", marginBottom: 12 }}>□に当てはまる言葉を選ぼう</div>
+              {word.meaning.sentence ? (
+                <div style={{ fontSize: 19, color: "#2C1810", fontFamily: "'Noto Serif JP',serif", lineHeight: 2.2, background: "#F0FFF4", padding: "14px 18px", borderRadius: 14, border: "2px solid #A8D5B5", textAlign: "left" }}>
+                  {word.meaning.sentence.split("□").map((part, i, arr) => (
+                    <span key={i}>
+                      {part}
+                      {i < arr.length - 1 && (
+                        <span style={{ display: "inline-block", minWidth: 72, borderBottom: "3px solid #27AE60", marginBottom: -4, marginLeft: 2, marginRight: 2, textAlign: "center" }}>
+                          {picked ? <span style={{ fontSize: 17, fontWeight: 900, color: picked === word.meaning.text ? "#2E7D32" : "#C62828", fontFamily: "'Noto Serif JP',serif" }}>{picked}</span> : "　　"}
+                        </span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: 28, fontWeight: 900, color: "#1C1B2E", fontFamily: "'Noto Serif JP',serif" }}>{word.kanji}</div>
+              )}
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {meaningChoices.map(c => choiceBtn(c, word.meaning.text, meaningChoices, 14))}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 16 }}>
+              {meaningChoices.map(c => {
+                const isRight = c === word.meaning.text;
+                const isSel = c === picked;
+                let bg = "#F0FFF4", border = "#A8D5B5", col = "#2C1810";
+                if (picked) {
+                  if (isRight) { bg = "#E8F5E9"; border = "#66BB6A"; col = "#1B5E20"; }
+                  else if (isSel) { bg = "#FFEBEE"; border = "#EF5350"; col = "#B71C1C"; }
+                }
+                return (
+                  <button key={c} onClick={() => { if (!picked) { setPicked(c); finalize(c === word.meaning.text); } }}
+                    style={{ padding: "14px 8px", borderRadius: 13, border: `2.5px solid ${border}`, background: bg, fontSize: 16, textAlign: "center", cursor: picked ? "default" : "pointer", transition: "all 0.18s", fontFamily: "'Noto Serif JP',serif", color: col, fontWeight: 600, lineHeight: 1.5 }}>
+                    {c}{picked && isRight && " ✓"}
+                  </button>
+                );
+              })}
             </div>
-            {picked && picked !== word.meaning.text && <div style={{ marginTop: 10, fontSize: 13, color: "#888", background: "#F5F5F5", padding: "8px 14px", borderRadius: 10 }}>正解：{word.meaning.text}</div>}
+            {picked && picked !== word.meaning.text && (
+              <div style={{ marginTop: 10, fontSize: 13, color: "#888", background: "#F5F5F5", padding: "8px 14px", borderRadius: 10 }}>
+                正解：<span style={{ fontWeight: 900, color: "#333" }}>{word.meaning.text}</span>
+              </div>
+            )}
           </div>
         )}
 
