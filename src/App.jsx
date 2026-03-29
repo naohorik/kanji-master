@@ -21,10 +21,23 @@ function buildQueue(words, wrongCounts = {}) {
   const q = [];
   words.forEach(w => {
     const extra = Math.min(wrongCounts[w.kanji] || 0, 3);
-    q.push({ word: w, type: "writing" });
-    q.push({ word: w, type: "reading" });
-    for (let i = 0; i < extra; i++) {
-      q.push({ word: w, type: i % 2 === 0 ? "writing" : "reading" });
+    if (w.meaning) {
+      // 和語：意味4択
+      q.push({ word: w, type: "meaning" });
+      for (let i = 0; i < extra; i++) q.push({ word: w, type: "meaning" });
+    } else if (w.kanyoku) {
+      // 慣用句：意味4択か穴埋めをランダムで
+      const t = Math.random() < 0.5 ? "kanyoku_meaning" : "kanyoku_fill";
+      q.push({ word: w, type: t });
+      for (let i = 0; i < extra; i++) q.push({ word: w, type: t });
+    } else {
+      // 漢字・熟語：書き取り＋読み方
+      q.push({ word: w, type: "writing" });
+      q.push({ word: w, type: "reading" });
+      if (w.yoji) q.push({ word: w, type: "yoji" });
+      for (let i = 0; i < extra; i++) {
+        q.push({ word: w, type: i % 2 === 0 ? "writing" : "reading" });
+      }
     }
   });
   return shuffle(q);
@@ -50,15 +63,27 @@ async function generateQuestions(wordText) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST", headers: API_HEADERS,
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514", max_tokens: 4000,
-      messages: [{ role: "user", content: `小学3〜4年生向けの漢字の読み方問題を作成してください。
-以下の漢字・熟語リスト：
+      model: "claude-sonnet-4-20250514", max_tokens: 6000,
+      messages: [{ role: "user", content: `みろく国語塾 中級レベルの問題を作成してください。
+以下のテキストから語句を抽出してください：
 ${wordText}
 
 厳密にこのJSON形式のみで返してください（前後に文字を一切つけないこと）：
-{"words":[{"kanji":"漢字または熟語","reading":"ひらがなの読み方","wrongReadings":["まちがいよみ1","まちがいよみ2","まちがいよみ3"]}]}
-・wrongReadingsは同じ学年レベルのまぎらわしい読み方にすること
-・最低5問・最大20問
+{"words":[{
+  "kanji":"漢字・熟語・和語・慣用句",
+  "reading":"ひらがなの読み方（漢字・熟語のみ。和語・慣用句はそのままひらがな）",
+  "wrongReadings":["まちがいよみ1","まちがいよみ2","まちがいよみ3"],
+  "yoji":null,
+  "meaning":null,
+  "kanyoku":null
+}]}
+
+各フィールドのルール：
+・漢字・熟語：reading と wrongReadings を設定。yoji・meaning・kanyoku は null
+・四字熟語：yoji に {"full":"一石二鳥","blank":2,"answer":"石","wrongAnswers":["木","金","土"]} を設定（blank は1〜4の位置）
+・和語（ひらがなの言葉）：meaning に {"text":"言葉の意味説明","wrongMeanings":["誤答1","誤答2","誤答3"]} を設定。reading はひらがなのまま
+・慣用句（〜をする・〜に持つなど）：kanyoku に {"phrase":"羽をのばす","blank":"羽","answer":"羽","wrongAnswers":["根","虫","猫"],"meaning":"のびのびと自由にすること"} を設定。ランダムで意味4択か穴埋めのどちらかになる
+・最低5問・最大25問
 ・JSONのみ出力` }]
     })
   });
@@ -171,22 +196,26 @@ function Stars() {
 
 // ─── UPLOAD SCREEN ────────────────────────────────────────────────────────────
 function UploadScreen({ onStart }) {
-  const [tab, setTab] = useState("text");
-  const [imgSrc, setImgSrc] = useState(null);
-  const [imgB64, setImgB64] = useState(null);
+  const [tab, setTab] = useState("photo");
+  const [imgs, setImgs] = useState([null, null]);
   const [textInput, setTextInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState("");
   const [err, setErr] = useState("");
-  const fileRef = useRef();
-  const cameraRef = useRef();
+  const fileRef0 = useRef();
+  const fileRef1 = useRef();
 
-  const canStart = tab === "photo" ? !!imgB64 : textInput.trim().length > 0;
+  const canStart = tab === "photo" ? imgs.some(i => i !== null) : textInput.trim().length > 0;
 
-  const handleFile = (file) => {
+  const handleFile = (file, idx) => {
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (e) => { setImgSrc(e.target.result); setImgB64(e.target.result.split(",")[1]); setErr(""); };
+    reader.onload = (e) => {
+      const newImgs = [...imgs];
+      newImgs[idx] = { src: e.target.result, b64: e.target.result.split(",")[1] };
+      setImgs(newImgs);
+      setErr("");
+    };
     reader.readAsDataURL(file);
   };
 
@@ -197,14 +226,16 @@ function UploadScreen({ onStart }) {
       let text = textInput;
       if (tab === "photo") {
         setStage("reading");
-        text = await extractTextFromImage(imgB64);
+        const loaded = imgs.filter(i => i !== null);
+        const texts = await Promise.all(loaded.map(i => extractTextFromImage(i.b64)));
+        text = texts.join("\n");
       }
       setStage("making");
       const words = await generateQuestions(text);
       if (!words || words.length === 0) throw new Error("empty");
       onStart(words);
     } catch (e) {
-      setErr("もんだいを作れませんでした。漢字を5個以上入力してもう一度試してね。");
+      setErr("もんだいを作れませんでした。もう一度試してね。");
     }
     setLoading(false); setStage("");
   };
@@ -218,7 +249,7 @@ function UploadScreen({ onStart }) {
       </div>
 
       <div style={{ display: "flex", background: "#EDD9B8", borderRadius: 14, padding: 4, marginBottom: 14, gap: 4 }}>
-        {[["text", "✏️ 手入力する"], ["photo", "📷 写真でよみとる"]].map(([key, label]) => (
+        {[["photo", "📷 写真でよみとる"], ["text", "✏️ 手入力する"]].map(([key, label]) => (
           <button key={key} onClick={() => { setTab(key); setErr(""); }}
             style={{ flex: 1, padding: "11px 8px", borderRadius: 11, border: "none", background: tab === key ? "white" : "transparent", color: tab === key ? "#E07B20" : "#9C7B5A", fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "inherit", boxShadow: tab === key ? "0 2px 8px rgba(0,0,0,0.1)" : "none", transition: "all 0.2s" }}>
             {label}
@@ -227,7 +258,40 @@ function UploadScreen({ onStart }) {
       </div>
 
       <div style={{ background: "white", borderRadius: 20, padding: 22, boxShadow: "0 6px 24px rgba(180,120,60,0.12)", border: "2px solid #EDD9B8", marginBottom: 14 }}>
-        {tab === "text" ? (
+        {tab === "photo" ? (
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 14, color: "#5C3D1E", marginBottom: 4 }}>プリント2枚の写真をとろう</div>
+            <div style={{ fontSize: 12, color: "#9C7B5A", marginBottom: 12 }}>1枚でもOK！2枚まとめて問題を作るよ</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {[[fileRef0, 0, "1枚め（必須）"], [fileRef1, 1, "2枚め（任意）"]].map(([ref, idx, label]) => (
+                <div key={idx}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#9C7B5A", marginBottom: 5, textAlign: "center" }}>{label}</div>
+                  <div onClick={() => ref.current.click()}
+                    style={{ border: `3px dashed ${imgs[idx] ? "#81C784" : "#D4B896"}`, borderRadius: 14, padding: "16px 10px", textAlign: "center", cursor: "pointer", background: imgs[idx] ? "#F1F8F1" : "#FFFDF7", minHeight: 110, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                    {imgs[idx] ? (
+                      <div>
+                        <img src={imgs[idx].src} alt={`p${idx}`} style={{ maxWidth: "100%", maxHeight: 80, borderRadius: 8, objectFit: "contain" }} />
+                        <div style={{ marginTop: 6, fontSize: 11, color: "#4CAF50", fontWeight: 700 }}>✅ よみこみ済み</div>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ fontSize: 32, marginBottom: 4 }}>📷</div>
+                        <div style={{ fontSize: 12, color: "#9C7B5A", fontWeight: 700 }}>タップして選ぶ</div>
+                      </div>
+                    )}
+                  </div>
+                  <input ref={ref} type="file" accept="image/*" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0], idx)} />
+                </div>
+              ))}
+            </div>
+            {imgs.some(i => i !== null) && (
+              <button onClick={() => setImgs([null, null])}
+                style={{ width: "100%", marginTop: 10, padding: "8px", borderRadius: 10, border: "1.5px solid #EDD9B8", background: "white", fontSize: 13, color: "#9C7B5A", cursor: "pointer", fontFamily: "inherit" }}>
+                🗑 リセット
+              </button>
+            )}
+          </div>
+        ) : (
           <div>
             <div style={{ fontWeight: 800, fontSize: 14, color: "#5C3D1E", marginBottom: 6 }}>テストに出る漢字を入力しよう</div>
             <div style={{ fontSize: 12, color: "#9C7B5A", marginBottom: 10 }}>スペース・読点・改行で区切ってね（5個以上）</div>
@@ -236,30 +300,6 @@ function UploadScreen({ onStart }) {
               style={{ width: "100%", minHeight: 160, padding: "14px", borderRadius: 14, border: "2.5px solid #D4B896", fontSize: 16, fontFamily: "'Noto Serif JP',serif", outline: "none", background: "#FFFEF5", color: "#2C1810", lineHeight: 1.9, resize: "vertical", boxSizing: "border-box" }}
             />
             <div style={{ fontSize: 12, color: "#BBA888", marginTop: 6 }}>💡 読み仮名を入れると精度アップ！（例：努力（どりょく））</div>
-          </div>
-        ) : (
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 14, color: "#5C3D1E", marginBottom: 10 }}>プリントの写真をとろう</div>
-            <div onClick={() => fileRef.current.click()}
-              style={{ border: "3px dashed #D4B896", borderRadius: 16, padding: "22px 20px", textAlign: "center", cursor: "pointer", background: imgSrc ? "#FFF8F0" : "#FFFDF7" }}>
-              {imgSrc ? (
-                <div>
-                  <img src={imgSrc} alt="uploaded" style={{ maxWidth: "100%", maxHeight: 160, borderRadius: 10, objectFit: "contain" }} />
-                  <div style={{ marginTop: 8, fontSize: 13, color: "#4CAF50", fontWeight: 700 }}>✅ 画像がよみこまれました</div>
-                </div>
-              ) : (
-                <div>
-                  <div style={{ fontSize: 40, marginBottom: 6 }}>📷</div>
-                  <div style={{ fontWeight: 800, color: "#9C7B5A", fontSize: 14 }}>ここをタップして写真を選ぶ</div>
-                </div>
-              )}
-            </div>
-            <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
-            <button onClick={() => cameraRef.current.click()}
-              style={{ width: "100%", marginTop: 10, padding: "11px", borderRadius: 12, border: "2px solid #D4B896", background: "#FFF8F0", fontSize: 14, fontWeight: 700, color: "#9C7B5A", cursor: "pointer", fontFamily: "inherit" }}>
-              📸 カメラで直接とる
-            </button>
-            <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
           </div>
         )}
       </div>
@@ -272,7 +312,7 @@ function UploadScreen({ onStart }) {
       </button>
 
       <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "center" }}>
-        {["✏️ 書き取り", "📖 読み方"].map(t => (
+        {["✏️ 書き取り", "📖 読み方", "🀄 四字熟語", "📗 意味えらび", "💬 慣用句"].map(t => (
           <span key={t} style={{ background: "white", border: "2px solid #EDD9B8", borderRadius: 99, padding: "6px 20px", fontSize: 14, color: "#9C7B5A", fontWeight: 700 }}>{t}</span>
         ))}
       </div>
@@ -315,7 +355,47 @@ function QuestionCard({ entry, idx, total, wrongCount, onAnswer }) {
   };
 
   const isWriting = type === "writing";
-  const color = isWriting ? "#FF6B35" : "#2196F3";
+  const isYoji = type === "yoji";
+  const isMeaning = type === "meaning";
+  const isKanyokuMeaning = type === "kanyoku_meaning";
+  const isKanyokuFill = type === "kanyoku_fill";
+  const color = isWriting ? "#FF6B35" : isYoji ? "#8E44AD" : (isMeaning||isKanyokuMeaning||isKanyokuFill) ? "#27AE60" : "#2196F3";
+  const typeLabel = isWriting ? "✏️ 書き取り" : isYoji ? "🀄 四字熟語" : isMeaning ? "📗 意味えらび" : isKanyokuMeaning ? "💬 慣用句の意味" : isKanyokuFill ? "💬 慣用句の穴埋め" : "📖 読み方";
+
+  // 四字熟語の選択肢
+  const yojiChoices = isYoji && word.yoji
+    ? shuffle([word.yoji.answer, ...(word.yoji.wrongAnswers || []).slice(0, 3)])
+    : [];
+  // 意味の選択肢
+  const meaningChoices = isMeaning && word.meaning
+    ? shuffle([word.meaning.text, ...(word.meaning.wrongMeanings || []).slice(0, 3)])
+    : [];
+  // 慣用句の選択肢
+  const kanyokuChoices = isKanyokuMeaning && word.kanyoku
+    ? shuffle([word.kanyoku.meaning, ...(word.kanyoku.wrongAnswers || []).slice(0, 3).map(a => a + "こと")])
+    : [];
+  const [fillVal, setFillVal] = useState("");
+
+  // 四字熟語の表示（穴の位置に□を入れる）
+  const renderYoji = (full, blankPos, ans, picked) => {
+    return full.split("").map((ch, i) => {
+      const pos = i + 1;
+      const isBlank = pos === blankPos;
+      const showAns = picked !== null && isBlank;
+      return (
+        <span key={i} style={{
+          display: "inline-block", width: 52, height: 60, lineHeight: "60px", textAlign: "center",
+          fontSize: 38, fontWeight: 900, fontFamily: "'Kaisei Opti','Noto Serif JP',serif",
+          background: isBlank ? (picked === ans ? "#E8F5E9" : picked ? "#FFEBEE" : "#FFF3DC") : "transparent",
+          color: isBlank ? (picked === ans ? "#2E7D32" : picked ? "#C62828" : "#E07B20") : "#1C1B2E",
+          borderRadius: 10, border: isBlank ? "2.5px solid " + (picked === ans ? "#81C784" : picked ? "#EF9A9A" : "#FFCC44") : "none",
+          margin: "0 3px"
+        }}>
+          {showAns ? (picked === ans ? ans : ans) : isBlank ? "□" : ch}
+        </span>
+      );
+    });
+  };
 
   return (
     <div style={{ maxWidth: 460, margin: "0 auto", width: "100%" }}>
@@ -331,7 +411,7 @@ function QuestionCard({ entry, idx, total, wrongCount, onAnswer }) {
 
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
         <span style={{ background: color + "18", color, border: `2px solid ${color}44`, padding: "6px 22px", borderRadius: 99, fontSize: 15, fontWeight: 900, letterSpacing: 1 }}>
-          {isWriting ? "✏️ 書き取り" : "📖 読み方"}
+          {typeLabel}
         </span>
       </div>
 
@@ -393,6 +473,130 @@ function QuestionCard({ entry, idx, total, wrongCount, onAnswer }) {
                 正解：<span style={{ fontFamily: "'Noto Serif JP',serif", fontSize: 22, fontWeight: 900, color: "#333" }}>{word.reading}</span>
               </div>
             )}
+          </div>
+        )}
+
+        {isMeaning && word.meaning && (
+          <div>
+            <div style={{ textAlign: "center", marginBottom: 22 }}>
+              <div style={{ fontSize: 13, color: "#9C7B5A", marginBottom: 12 }}>意味を選ぼう</div>
+              <div style={{ fontSize: 36, fontWeight: 900, color: "#1C1B2E", fontFamily: "'Noto Serif JP',serif", letterSpacing: 2 }}>{word.kanji}</div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {meaningChoices.map((c, i) => {
+                const isRight = c === word.meaning.text;
+                const isSel = c === picked;
+                let bg = "#F0FFF4", border = "#A8D5B5", col = "#2C1810";
+                if (picked) {
+                  if (isRight) { bg = "#E8F5E9"; border = "#66BB6A"; col = "#1B5E20"; }
+                  else if (isSel) { bg = "#FFEBEE"; border = "#EF5350"; col = "#B71C1C"; }
+                }
+                return (
+                  <button key={i} onClick={() => { if (!picked) { setPicked(c); finalize(c === word.meaning.text); } }}
+                    style={{ padding: "13px 16px", borderRadius: 13, border: `2.5px solid ${border}`, background: bg, fontSize: 14, textAlign: "left", cursor: picked ? "default" : "pointer", transition: "all 0.18s", fontFamily: "inherit", color: col, lineHeight: 1.6, fontWeight: 500 }}>
+                    {c}{picked && isRight && " ✓"}
+                  </button>
+                );
+              })}
+            </div>
+            {picked && picked !== word.meaning.text && (
+              <div style={{ marginTop: 12, fontSize: 13, color: "#888", background: "#F5F5F5", padding: "8px 14px", borderRadius: 10 }}>
+                正解：{word.meaning.text}
+              </div>
+            )}
+          </div>
+        )}
+
+        {isKanyokuMeaning && word.kanyoku && (
+          <div>
+            <div style={{ textAlign: "center", marginBottom: 22 }}>
+              <div style={{ fontSize: 13, color: "#9C7B5A", marginBottom: 12 }}>慣用句の意味を選ぼう</div>
+              <div style={{ fontSize: 26, fontWeight: 900, color: "#27AE60", fontFamily: "'Noto Serif JP',serif", background: "#F0FFF4", padding: "12px 16px", borderRadius: 12, border: "2px solid #A8D5B5" }}>「{word.kanyoku.phrase}」</div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {kanyokuChoices.map((c, i) => {
+                const isRight = c === word.kanyoku.meaning;
+                const isSel = c === picked;
+                let bg = "#F0FFF4", border = "#A8D5B5", col = "#2C1810";
+                if (picked) {
+                  if (isRight) { bg = "#E8F5E9"; border = "#66BB6A"; col = "#1B5E20"; }
+                  else if (isSel) { bg = "#FFEBEE"; border = "#EF5350"; col = "#B71C1C"; }
+                }
+                return (
+                  <button key={i} onClick={() => { if (!picked) { setPicked(c); finalize(c === word.kanyoku.meaning); } }}
+                    style={{ padding: "13px 16px", borderRadius: 13, border: `2.5px solid ${border}`, background: bg, fontSize: 14, textAlign: "left", cursor: picked ? "default" : "pointer", transition: "all 0.18s", fontFamily: "inherit", color: col, lineHeight: 1.6 }}>
+                    {c}{picked && isRight && " ✓"}
+                  </button>
+                );
+              })}
+            </div>
+            {picked && picked !== word.kanyoku.meaning && (
+              <div style={{ marginTop: 12, fontSize: 13, color: "#888", background: "#F5F5F5", padding: "8px 14px", borderRadius: 10 }}>
+                正解：{word.kanyoku.meaning}
+              </div>
+            )}
+          </div>
+        )}
+
+        {isKanyokuFill && word.kanyoku && (
+          <div>
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div style={{ fontSize: 13, color: "#9C7B5A", marginBottom: 12 }}>（　）に入る言葉を選ぼう</div>
+              <div style={{ fontSize: 22, color: "#2C1810", fontFamily: "'Noto Serif JP',serif", background: "#F0FFF4", padding: "14px 16px", borderRadius: 12, border: "2px solid #A8D5B5", lineHeight: 2 }}>
+                {word.kanyoku.phrase.replace(word.kanyoku.blank, "（　）")}
+              </div>
+              <div style={{ fontSize: 12, color: "#888", marginTop: 6 }}>意味：{word.kanyoku.meaning}</div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {shuffle([word.kanyoku.answer, ...(word.kanyoku.wrongAnswers || []).slice(0, 3)]).map((c, i) => {
+                const isRight = c === word.kanyoku.answer;
+                const isSel = c === picked;
+                let bg = "#F0FFF4", border = "#A8D5B5", col = "#2C1810";
+                if (picked) {
+                  if (isRight) { bg = "#E8F5E9"; border = "#66BB6A"; col = "#1B5E20"; }
+                  else if (isSel) { bg = "#FFEBEE"; border = "#EF5350"; col = "#B71C1C"; }
+                }
+                return (
+                  <button key={i} onClick={() => { if (!picked) { setPicked(c); finalize(c === word.kanyoku.answer); } }}
+                    style={{ padding: "16px 8px", borderRadius: 13, border: `2.5px solid ${border}`, background: bg, fontSize: 18, fontWeight: 700, cursor: picked ? "default" : "pointer", transition: "all 0.18s", fontFamily: "'Noto Serif JP',serif", color: col }}>
+                    {c}{picked && isRight && " ✓"}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {isYoji && word.yoji && (
+          <div>
+            <div style={{ textAlign: "center", marginBottom: 24 }}>
+              <div style={{ fontSize: 13, color: "#9C7B5A", marginBottom: 16 }}>□に入る漢字を選ぼう</div>
+              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                {renderYoji(word.yoji.full, word.yoji.blank, word.yoji.answer, picked)}
+              </div>
+              {picked && (
+                <div style={{ marginTop: 14, fontSize: 14, color: picked === word.yoji.answer ? "#2E7D32" : "#888" }}>
+                  {picked === word.yoji.answer ? "🎉 正解！" : `正解：${word.yoji.answer}`}
+                </div>
+              )}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {yojiChoices.map((c, i) => {
+                const isRight = c === word.yoji.answer;
+                const isSel = c === picked;
+                let bg = "#FFF8F0", border = "#EDD9B8", col = "#2C1810";
+                if (picked) {
+                  if (isRight) { bg = "#E8F5E9"; border = "#66BB6A"; col = "#1B5E20"; }
+                  else if (isSel) { bg = "#FFEBEE"; border = "#EF5350"; col = "#B71C1C"; }
+                }
+                return (
+                  <button key={i} onClick={() => { if (!picked) { setPicked(c); finalize(c === word.yoji.answer); } }}
+                    style={{ padding: "18px 8px", borderRadius: 14, border: `2.5px solid ${border}`, background: bg, fontSize: 32, fontWeight: 900, cursor: picked ? "default" : "pointer", transition: "all 0.18s", fontFamily: "'Noto Serif JP',serif", color: col }}>
+                    {c}{picked && isRight && " ✓"}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
