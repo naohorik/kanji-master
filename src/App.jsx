@@ -77,18 +77,31 @@ ${wordText}
   "kanyoku":null
 }]}
 
-各フィールドのルール：
-・漢字・熟語：reading と wrongReadings を設定。yoji・meaning・kanyoku は null
-  → sentence フィールドに例文を設定すること。例文はプリントにある文をそのまま使う。カタカナ部分（書くべき漢字）は __BLANK__ に置換すること
-  例：{"sentence":"人類の__BLANK__。","sentenceReading":"えいち"}
-  sentenceReading は空欄部分のひらがなの読み
-・四字熟語：yoji に {"full":"一石二鳥","blank":2,"answer":"石","wrongAnswers":["木","金","土"]} を設定（blank は1〜4の位置）
-・和語（ひらがなの言葉）：meaning に以下を設定：
-  {"text":"その言葉自体（例：まぎらわしい）","wrongMeanings":["他の和語1","他の和語2","他の和語3"],"sentence":"猫をかぶって、□ふるまいをする。（□が空欄。その和語を入れると文章が完成する）"}
-  ※ sentence の□部分に正解の和語が入る。wrongMeanings は同じプリントの他の和語を使うと自然なひっかけになる
-・慣用句：kanyoku に {"phrase":"羽をのばす","blank":"羽","answer":"羽","wrongAnswers":["根","虫","猫"],"meaning":"のびのびと自由にすること"} を設定
-・語句は省略せずすべて抽出すること（上限なし）
-・JSONのみ出力` }]
+【重要】各語句のタイプ別ルール：
+
+【漢字・熟語の場合】（カタカナで書かれている語句）
+- kanji：正しい漢字（例：叡智）
+- reading：ひらがな（例：えいち）
+- wrongReadings：まぎらわしい読み方3つ
+- sentence：プリントの例文をそのまま使い、カタカナ部分を __BLANK__ に置換した文字列（必須！nullにしてはいけない）
+  例："人類の__BLANK__。" （エイチ→__BLANK__）
+- sentenceReading：空欄に入る漢字のひらがな読み（例："えいち"）
+- yoji・meaning・kanyoku：null
+
+【四字熟語の場合】
+- yoji に {"full":"一石二鳥","blank":2,"answer":"石","wrongAnswers":["木","金","土"]} を設定
+- sentence・sentenceReading：null
+
+【和語（ひらがなの言葉）の場合】
+- meaning に {"text":"まぎらわしい","wrongMeanings":["いつつましい","うしろめたさ","もどかしい"],"sentence":"猫をかぶって、□ふるまいをする。"} を設定
+  ※ sentence の□に正解の和語が入る。wrongMeanings は同じプリストの他の和語を使う
+- sentence・sentenceReading：null（meaningの中にsentenceを入れること）
+
+【慣用句の場合】
+- kanyoku に {"phrase":"羽をのばす","blank":"羽","answer":"羽","wrongAnswers":["根","虫","猫"],"meaning":"のびのびと自由にすること"} を設定
+
+語句は省略せずすべて抽出すること（上限なし）
+JSONのみ出力` }]
     })
   });
   const d = await res.json();
@@ -344,22 +357,44 @@ function UploadScreen({ onWordsReady }) {
 function ConfirmScreen({ words, onStart, onBack }) {
   const [list, setList] = useState(words);
   const [newWord, setNewWord] = useState("");
+  const [newCategory, setNewCategory] = useState("kanji"); // kanji | wago | kanyoku | yoji
 
   const remove = (idx) => setList(l => l.filter((_, i) => i !== idx));
 
-  const add = async () => {
+  const add = () => {
     const w = newWord.trim();
     if (!w) return;
-    // シンプルに追加（読みはAIで後で補完）
-    setList(l => [...l, { kanji: w, reading: "（よみとり中）", wrongReadings: [], yoji: null, meaning: null, kanyoku: null }]);
+    let entry = { kanji: w, reading: "", wrongReadings: [], yoji: null, meaning: null, kanyoku: null, sentence: null, sentenceReading: null };
+    if (newCategory === "wago") {
+      entry.meaning = { text: w, wrongMeanings: [], sentence: null };
+    } else if (newCategory === "kanyoku") {
+      entry.kanyoku = { phrase: w, blank: w.split("を")[0] || w, answer: w.split("を")[0] || w, wrongAnswers: [], meaning: "" };
+    } else if (newCategory === "yoji") {
+      entry.yoji = { full: w, blank: 1, answer: w[0] || "", wrongAnswers: [] };
+    }
+    setList(l => [...l, entry]);
     setNewWord("");
   };
+
+  const CATEGORIES = [
+    { key: "kanji", label: "✏️ 漢字", color: "#FF6B35" },
+    { key: "wago",  label: "📗 和語", color: "#27AE60" },
+    { key: "kanyoku", label: "💬 慣用句", color: "#27AE60" },
+    { key: "yoji",  label: "🀄 四字熟語", color: "#8E44AD" },
+  ];
 
   const typeLabel = (w) => {
     if (w.meaning) return "📗 和語";
     if (w.kanyoku) return "💬 慣用句";
     if (w.yoji) return "🀄 四字熟語";
     return "✏️ 漢字";
+  };
+
+  const typeBg = (w) => {
+    if (w.meaning) return { bg: "#F0FFF4", color: "#27AE60" };
+    if (w.kanyoku) return { bg: "#F0FFF4", color: "#27AE60" };
+    if (w.yoji) return { bg: "#F3E8FF", color: "#8E44AD" };
+    return { bg: "#FFF3DC", color: "#E07B20" };
   };
 
   return (
@@ -377,7 +412,7 @@ function ConfirmScreen({ words, onStart, onBack }) {
         {list.map((w, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 8px", borderBottom: i < list.length - 1 ? "1px solid #F5ECD8" : "none" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 11, background: "#FFF3DC", color: "#E07B20", padding: "2px 8px", borderRadius: 99, fontWeight: 700, whiteSpace: "nowrap" }}>{typeLabel(w)}</span>
+              <span style={{ fontSize: 11, background: typeBg(w).bg, color: typeBg(w).color, padding: "2px 8px", borderRadius: 99, fontWeight: 700, whiteSpace: "nowrap" }}>{typeLabel(w)}</span>
               <span style={{ fontSize: 18, fontFamily: "'Noto Serif JP',serif", fontWeight: 700, color: "#2C1810" }}>{w.kanji}</span>
               <span style={{ fontSize: 12, color: "#9C7B5A" }}>{w.reading !== "（よみとり中）" ? w.reading : ""}</span>
             </div>
@@ -393,16 +428,26 @@ function ConfirmScreen({ words, onStart, onBack }) {
       </div>
 
       {/* 追加フォーム */}
-      <div style={{ background: "white", borderRadius: 16, padding: "14px 16px", boxShadow: "0 4px 14px rgba(180,120,60,0.08)", border: "2px solid #EDD9B8", marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#5C3D1E", marginBottom: 8 }}>➕ 語句を追加する</div>
+      <div style={{ background: "white", borderRadius: 16, padding: "16px", boxShadow: "0 4px 14px rgba(180,120,60,0.08)", border: "2px solid #EDD9B8", marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#5C3D1E", marginBottom: 10 }}>➕ 語句を追加する</div>
+        {/* カテゴリ選択 */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+          {CATEGORIES.map(cat => (
+            <button key={cat.key} onClick={() => setNewCategory(cat.key)}
+              style={{ padding: "8px 6px", borderRadius: 10, border: `2px solid ${newCategory === cat.key ? cat.color : "#EDD9B8"}`, background: newCategory === cat.key ? cat.color + "18" : "white", color: newCategory === cat.key ? cat.color : "#9C7B5A", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s" }}>
+              {cat.label}
+            </button>
+          ))}
+        </div>
+        {/* 入力フォーム */}
         <div style={{ display: "flex", gap: 8 }}>
           <input value={newWord} onChange={e => setNewWord(e.target.value)}
             onKeyDown={e => e.key === "Enter" && newWord && add()}
-            placeholder="漢字・語句を入力"
-            style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "2px solid #D4B896", fontSize: 16, fontFamily: "'Noto Serif JP',serif", outline: "none", background: "#FFFEF5", color: "#2C1810" }}
+            placeholder={newCategory === "kanji" ? "漢字・熟語を入力" : newCategory === "wago" ? "和語をひらがなで入力" : newCategory === "kanyoku" ? "慣用句を入力（例：羽をのばす）" : "四字熟語を入力"}
+            style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "2px solid #D4B896", fontSize: 15, fontFamily: "'Noto Serif JP',serif", outline: "none", background: "#FFFEF5", color: "#2C1810" }}
           />
           <button onClick={add} disabled={!newWord.trim()}
-            style={{ padding: "10px 18px", borderRadius: 10, border: "none", background: newWord.trim() ? "#FF6B35" : "#D4C4B0", color: "white", fontSize: 15, fontWeight: 900, cursor: newWord.trim() ? "pointer" : "default", fontFamily: "inherit" }}>
+            style={{ padding: "10px 18px", borderRadius: 10, border: "none", background: newWord.trim() ? CATEGORIES.find(c=>c.key===newCategory).color : "#D4C4B0", color: "white", fontSize: 15, fontWeight: 900, cursor: newWord.trim() ? "pointer" : "default", fontFamily: "inherit" }}>
             追加
           </button>
         </div>
@@ -510,15 +555,15 @@ function QuestionCard({ entry, idx, total, wrongCount, onAnswer }) {
                 {word.sentence ? "傍線部を漢字で書こう" : "この読み方の漢字を書こう"}
               </div>
               {word.sentence ? (
-                <div style={{ fontSize: 20, color: "#2C1810", fontFamily: "'Noto Serif JP',serif", lineHeight: 2.2, background: "#FFF8F0", padding: "14px 18px", borderRadius: 14, border: "2px solid #EDD9B8" }}>
+                <div style={{ fontSize: 22, color: "#2C1810", fontFamily: "'Noto Serif JP',serif", lineHeight: 2.6, background: "#FFF8F0", padding: "18px 20px", borderRadius: 14, border: "2px solid #EDD9B8", textAlign: "left" }}>
                   {word.sentence.split("__BLANK__").map((part, i, arr) => (
                     <span key={i}>
                       {part}
                       {i < arr.length - 1 && (
-                        <span style={{ display: "inline-block", minWidth: 56, borderBottom: "3px solid #FF6B35", marginBottom: -4, marginLeft: 2, marginRight: 2 }}>
+                        <span style={{ display: "inline-block", minWidth: [...word.kanji].length * 28, borderBottom: "4px solid #FF6B35", marginBottom: -6, marginLeft: 3, marginRight: 3, verticalAlign: "bottom", textAlign: "center" }}>
                           {hwResult ? (
-                            <span style={{ fontSize: 22, fontWeight: 900, color: hwResult.correct ? "#2E7D32" : "#C62828", fontFamily: "'Noto Serif JP',serif" }}>{word.kanji}</span>
-                          ) : "　"}
+                            <span style={{ fontSize: 24, fontWeight: 900, color: hwResult.correct ? "#2E7D32" : "#C62828", fontFamily: "'Noto Serif JP',serif" }}>{word.kanji}</span>
+                          ) : ""}
                         </span>
                       )}
                     </span>
@@ -528,7 +573,7 @@ function QuestionCard({ entry, idx, total, wrongCount, onAnswer }) {
                 <div style={{ fontSize: 52, fontWeight: 900, color: "#FF6B35", fontFamily: "'Kaisei Opti','Noto Serif JP',serif", letterSpacing: 6, lineHeight: 1.2 }}>{word.reading}</div>
               )}
               {word.sentence && !hwResult && (
-                <div style={{ marginTop: 8, fontSize: 15, color: "#FF6B35", fontWeight: 700 }}>
+                <div style={{ marginTop: 10, display: "inline-block", background: "#FF6B3518", border: "2px solid #FF6B3544", borderRadius: 99, padding: "5px 16px", fontSize: 16, color: "#FF6B35", fontWeight: 800 }}>
                   読み：{word.sentenceReading || word.reading}
                 </div>
               )}
